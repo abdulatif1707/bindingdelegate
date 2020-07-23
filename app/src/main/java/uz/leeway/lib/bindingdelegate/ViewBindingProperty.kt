@@ -6,20 +6,15 @@ import android.view.View
 import androidx.annotation.IdRes
 import androidx.annotation.MainThread
 import androidx.core.app.ComponentActivity
+import androidx.databinding.ViewDataBinding
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.Fragment
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.databinding.ViewDataBinding
-import uz.leeway.lib.bindingdelegate.internal.ActivityDataBinder
-import uz.leeway.lib.bindingdelegate.internal.DialogFragmentDataBinder
-import uz.leeway.lib.bindingdelegate.internal.FragmentDataBinder
-import uz.leeway.lib.bindingdelegate.internal.checkIsMainThread
-import uz.leeway.lib.bindingdelegate.internal.requireViewByIdCompat
+import androidx.lifecycle.*
+import uz.leeway.lib.bindingdelegate.internal.*
 import kotlin.properties.ReadOnlyProperty
 import kotlin.reflect.KProperty
 
-abstract class DataBindingProperty<in R, T : ViewDataBinding>(
+abstract class DataBindingProperty<R : LifecycleOwner, T : ViewDataBinding>(
     private val viewBinder: (R) -> T
 ) : ReadOnlyProperty<R, T> {
 
@@ -28,12 +23,18 @@ abstract class DataBindingProperty<in R, T : ViewDataBinding>(
 
     protected abstract fun getLifecycleOwner(thisRef: R): LifecycleOwner
 
+    protected abstract fun getLifecycleOwnerLiveData(thisRef: R): LiveData<LifecycleOwner>
+
     @MainThread
     override fun getValue(thisRef: R, property: KProperty<*>): T {
         checkIsMainThread()
         binding?.let { return it }
 
-        getLifecycleOwner(thisRef).lifecycle.addObserver(lifecycleObserver)
+//        getLifecycleOwner(thisRef).lifecycle.addObserver(lifecycleObserver)
+
+        getLifecycleOwnerLiveData(thisRef).observe(thisRef, Observer {
+            it.lifecycle.addObserver(lifecycleObserver)
+        })
         return viewBinder(thisRef).also { binding = it }
     }
 
@@ -57,6 +58,10 @@ internal class ActivityDataBindingProperty<A : ComponentActivity, T : ViewDataBi
 ) : DataBindingProperty<A, T>(viewBinder) {
 
     override fun getLifecycleOwner(thisRef: A) = thisRef
+
+    override fun getLifecycleOwnerLiveData(thisRef: A): LiveData<LifecycleOwner> {
+        return MutableLiveData<LifecycleOwner>().apply { this.value = thisRef }
+    }
 }
 
 @PublishedApi
@@ -65,6 +70,10 @@ internal class FragmentDataBindingProperty<F : Fragment, T : ViewDataBinding>(
 ) : DataBindingProperty<F, T>(viewBinder) {
 
     override fun getLifecycleOwner(thisRef: F) = thisRef.viewLifecycleOwner
+
+    override fun getLifecycleOwnerLiveData(thisRef: F): LiveData<LifecycleOwner> {
+        return thisRef.viewLifecycleOwnerLiveData
+    }
 }
 
 @PublishedApi
@@ -74,6 +83,10 @@ internal class DialogFragmentDataBindingProperty<F : DialogFragment, T : ViewDat
 
     override fun getLifecycleOwner(thisRef: F): LifecycleOwner {
         return if (thisRef.view == null) thisRef.viewLifecycleOwner else thisRef
+    }
+
+    override fun getLifecycleOwnerLiveData(thisRef: F): LiveData<LifecycleOwner> {
+        return thisRef.viewLifecycleOwnerLiveData
     }
 }
 
